@@ -81,3 +81,5 @@ custom_prompts/
 # Local history
 # =========================
 .history/
+# Local data
+data/history.db

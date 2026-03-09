@@ -1,5 +1,6 @@
-import traceback
+import json
 from datetime import datetime
+from html import escape
 
 import streamlit as st
 
@@ -9,6 +10,7 @@ from config import (
     DEFAULT_RESPONSE_LANGUAGE,
     GEMINI_API_KEY,
     GEMINI_MODEL,
+    HISTORY_LIMIT,
     MAX_FILE_SIZE_KB,
     OLLAMA_BASE_URL,
     OLLAMA_MODEL,
@@ -17,27 +19,84 @@ from config import (
     REQUEST_TIMEOUT_SECONDS,
 )
 from core.compare_service import CompareService
-from core.models import CompareRequest, ProviderConfig
-from core.prompts import (
-    build_compare_prompt,
-    list_prompt_files,
-    load_prompt_template,
-    save_custom_prompt,
-)
+from core.models import CompareRequest, ProviderConfig, StructuredCompareResult
+from core.prompts import build_compare_prompt, list_prompt_files, load_prompt_template, save_custom_prompt
+from core.storage import init_history_db, list_history_entries, save_history_entry
 from utils import detect_language_from_extension, read_uploaded_file
 
-
-st.set_page_config(
-    page_title="Code Compare AI",
-    page_icon="🧠",
-    layout="wide",
-)
+st.set_page_config(page_title="Code Compare AI", page_icon="🧠", layout="wide")
 
 PROVIDER_OPTIONS = ["gemini", "openai", "ollama"]
 LANGUAGE_OPTIONS = ["Portuguese (Brazil)", "English"]
+SEVERITY_COLORS = {
+    "critical": "#ef4444",
+    "high": "#f97316",
+    "medium": "#eab308",
+    "low": "#22c55e",
+}
+
+
+
+def inject_styles():
+    st.markdown(
+        """
+        <style>
+        .ccai-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 12px 14px;
+            background: #ffffff;
+            margin-bottom: 10px;
+        }
+        .ccai-card-label {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 4px;
+        }
+        .ccai-card-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #111827;
+            word-break: break-word;
+        }
+        .ccai-issue {
+            border: 1px solid #e5e7eb;
+            border-left: 6px solid #d1d5db;
+            border-radius: 12px;
+            background: #ffffff;
+            padding: 14px;
+            margin-bottom: 12px;
+        }
+        .ccai-issue-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 6px;
+        }
+        .ccai-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-right: 6px;
+            color: white;
+            text-transform: uppercase;
+        }
+        .ccai-meta {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 8px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 
 def initialize_session():
+    init_history_db()
     prompt_files = list_prompt_files()
     default_prompt_name = DEFAULT_PROMPT_FILE if DEFAULT_PROMPT_FILE in prompt_files else (prompt_files[0] if prompt_files else "")
 
@@ -48,10 +107,9 @@ def initialize_session():
         "prompt_text": load_prompt_template(default_prompt_name) if default_prompt_name else "",
         "provider_api_key": "",
         "ollama_base_url": OLLAMA_BASE_URL,
-        "compare_result": "",
+        "compare_result": None,
         "last_error": "",
         "save_prompt_name": "",
-        "history": [],
         "gemini_model": GEMINI_MODEL,
         "openai_model": OPENAI_MODEL,
         "ollama_model": OLLAMA_MODEL,
@@ -67,6 +125,8 @@ def initialize_session():
 
 
 initialize_session()
+inject_styles()
+
 
 
 def get_current_model(provider_name):
@@ -79,11 +139,11 @@ def get_current_model(provider_name):
     raise ValueError("Unsupported provider: {0}".format(provider_name))
 
 
+
 def get_effective_api_key(provider_name):
     entered = st.session_state.provider_api_key.strip()
     if entered:
         return entered
-
     if provider_name == "gemini":
         return GEMINI_API_KEY.strip()
     if provider_name == "openai":
@@ -99,57 +159,35 @@ def prompt_editor_dialog():
     current_prompt_file = st.session_state.selected_prompt_file
     current_index = prompt_files.index(current_prompt_file) if current_prompt_file in prompt_files else 0
 
-    selected_prompt_file = st.selectbox(
-        "Prompt template",
-        prompt_files,
-        index=current_index,
-        key="modal_selected_prompt_file",
-    )
-
+    selected_prompt_file = st.selectbox("Prompt template", prompt_files, index=current_index)
     response_language = st.selectbox(
         "Response language",
         LANGUAGE_OPTIONS,
         index=LANGUAGE_OPTIONS.index(st.session_state.response_language),
-        key="modal_response_language",
     )
 
-    edited_prompt = st.text_area(
-        "Prompt content",
-        value=st.session_state.prompt_text,
-        height=220,
-        key="modal_prompt_text",
-    )
-
-    save_name = st.text_input(
-        "Save as custom prompt (.md)",
-        value=st.session_state.save_prompt_name,
-        key="modal_save_prompt_name",
-        placeholder="my_prompt.md",
-    )
+    edited_prompt = st.text_area("Prompt content", value=st.session_state.prompt_text, height=260)
+    save_name = st.text_input("Save as custom prompt (.md)", value=st.session_state.save_prompt_name, placeholder="my_prompt.md")
 
     col1, col2, col3, col4 = st.columns(4)
-
     with col1:
         if st.button("Load template", use_container_width=True):
             st.session_state.selected_prompt_file = selected_prompt_file
             st.session_state.prompt_text = load_prompt_template(selected_prompt_file)
             st.session_state.response_language = response_language
             st.rerun()
-
     with col2:
         if st.button("Apply changes", use_container_width=True):
             st.session_state.prompt_text = edited_prompt
             st.session_state.response_language = response_language
             st.session_state.selected_prompt_file = selected_prompt_file
             st.rerun()
-
     with col3:
         if st.button("Restore template", use_container_width=True):
             st.session_state.prompt_text = load_prompt_template(selected_prompt_file)
             st.session_state.response_language = response_language
             st.session_state.selected_prompt_file = selected_prompt_file
             st.rerun()
-
     with col4:
         if st.button("Save custom", use_container_width=True):
             try:
@@ -163,99 +201,50 @@ def prompt_editor_dialog():
                 st.error(str(exc))
 
 
+
 def render_sidebar():
     st.sidebar.title("Settings")
-
-    provider = st.sidebar.selectbox(
-        "Provider",
-        PROVIDER_OPTIONS,
-        index=PROVIDER_OPTIONS.index(st.session_state.selected_provider),
-        key="selected_provider",
-    )
+    provider = st.sidebar.selectbox("Provider", PROVIDER_OPTIONS, index=PROVIDER_OPTIONS.index(st.session_state.selected_provider), key="selected_provider")
 
     st.sidebar.subheader("Connection")
-
     if provider == "gemini":
-        st.sidebar.text_input(
-            "Model",
-            key="gemini_model",
-            help="Example: gemini-1.5-flash",
-        )
-        st.sidebar.text_input(
-            "Gemini API Key",
-            value=st.session_state.provider_api_key,
-            key="provider_api_key",
-            type="password",
-            help="Leave empty to use GEMINI_API_KEY from .env",
-        )
-
+        st.sidebar.text_input("Model", key="gemini_model", help="Example: gemini-1.5-flash")
+        st.sidebar.text_input("Gemini API Key", value=st.session_state.provider_api_key, key="provider_api_key", type="password", help="Leave empty to use GEMINI_API_KEY from .env")
     elif provider == "openai":
-        st.sidebar.text_input(
-            "Model",
-            key="openai_model",
-            help="Example: gpt-4.1-mini",
-        )
-        st.sidebar.text_input(
-            "OpenAI API Key",
-            value=st.session_state.provider_api_key,
-            key="provider_api_key",
-            type="password",
-            help="Leave empty to use OPENAI_API_KEY from .env",
-        )
-
-    elif provider == "ollama":
-        st.sidebar.text_input(
-            "Model",
-            key="ollama_model",
-            help="Example: qwen2.5-coder:7b",
-        )
-        st.sidebar.text_input(
-            "Ollama Base URL",
-            value=st.session_state.ollama_base_url,
-            key="ollama_base_url",
-            help="Leave as default if Ollama is running locally.",
-        )
+        st.sidebar.text_input("Model", key="openai_model", help="Example: gpt-4.1-mini")
+        st.sidebar.text_input("OpenAI API Key", value=st.session_state.provider_api_key, key="provider_api_key", type="password", help="Leave empty to use OPENAI_API_KEY from .env")
+    else:
+        st.sidebar.text_input("Model", key="ollama_model", help="Example: qwen2.5-coder:7b")
+        st.sidebar.text_input("Ollama Base URL", value=st.session_state.ollama_base_url, key="ollama_base_url", help="Leave as default if Ollama is running locally.")
 
     st.sidebar.divider()
     st.sidebar.subheader("Prompt")
     st.sidebar.caption("Template: `{0}`".format(st.session_state.selected_prompt_file))
     st.sidebar.caption("Response language: `{0}`".format(st.session_state.response_language))
-
     st.sidebar.divider()
     with st.sidebar.expander("Advanced settings", expanded=False):
         st.caption("Timeout: {0}s".format(REQUEST_TIMEOUT_SECONDS))
         st.caption("Max file size: {0} KB".format(MAX_FILE_SIZE_KB))
+        st.caption("History limit: {0}".format(HISTORY_LIMIT))
+
+
 
 def info_card(title, value):
     st.markdown(
-        f"""
-        <div style="
-            border:1px solid #e6e6e6;
-            border-radius:8px;
-            padding:10px 14px;
-            background:#fafafa;
-        ">
-            <div style="
-                font-size:12px;
-                color:#888;
-                margin-bottom:4px;
-            ">
-                {title}
-            </div>
-            <div style="
-                font-size:16px;
-                font-weight:600;
-            ">
-                {value}
-            </div>
+        """
+        <div class="ccai-card">
+            <div class="ccai-card-label">{0}</div>
+            <div class="ccai-card-value">{1}</div>
         </div>
-        """,
-        unsafe_allow_html=True
+        """.format(escape(title), escape(str(value))),
+        unsafe_allow_html=True,
     )
 
+
+
 def render_header():
-    st.title("Code Compare AI")
-    st.caption("Compare 2 code files with Gemini, OpenAI or Ollama using the same interface.")
+    st.title("Code Compare AI v6")
+    st.caption("Structured AI code review with Gemini, OpenAI or Ollama using the same interface.")
 
     action_col1, action_col2, _ = st.columns([1, 1, 4])
     with action_col1:
@@ -263,7 +252,7 @@ def render_header():
             prompt_editor_dialog()
     with action_col2:
         if st.button("Clear result", use_container_width=True):
-            st.session_state.compare_result = ""
+            st.session_state.compare_result = None
             st.session_state.last_error = ""
             st.session_state.last_code_a = ""
             st.session_state.last_code_b = ""
@@ -272,50 +261,32 @@ def render_header():
             st.rerun()
 
     col1, col2, col3, col4 = st.columns(4)
-
     with col1:
-        info_card("Provider", f"🤖 {st.session_state.selected_provider}")
-
+        info_card("Provider", "🤖 {0}".format(st.session_state.selected_provider))
     with col2:
-        info_card("Model", f"🧠 {get_current_model(st.session_state.selected_provider)}")
-
+        info_card("Model", "🧠 {0}".format(get_current_model(st.session_state.selected_provider)))
     with col3:
-        info_card("Prompt", f"📄 {st.session_state.selected_prompt_file}")
-
+        info_card("Prompt", "📄 {0}".format(st.session_state.selected_prompt_file))
     with col4:
-        info_card("Language", f"🌐 {st.session_state.response_language} ")
+        info_card("Language", "🌐 {0}".format(st.session_state.response_language))
+
+
 
 def render_upload_area():
     col1, col2 = st.columns(2)
-
     with col1:
-        file_a = st.file_uploader(
-            "File A",
-            type=None,
-            key="file_a",
-            help="Upload the original or reference file.",
-        )
-
+        file_a = st.file_uploader("File A", type=None, key="file_a", help="Upload the original or reference file.")
     with col2:
-        file_b = st.file_uploader(
-            "File B",
-            type=None,
-            key="file_b",
-            help="Upload the changed or candidate file.",
-        )
-
+        file_b = st.file_uploader("File B", type=None, key="file_b", help="Upload the changed or candidate file.")
     return file_a, file_b
+
 
 
 def validate_file_size(uploaded_file):
     max_size_bytes = MAX_FILE_SIZE_KB * 1024
     if uploaded_file.size > max_size_bytes:
-        raise ValueError(
-            "File '{0}' exceeds the limit of {1} KB.".format(
-                uploaded_file.name,
-                MAX_FILE_SIZE_KB,
-            )
-        )
+        raise ValueError("File '{0}' exceeds the limit of {1} KB.".format(uploaded_file.name, MAX_FILE_SIZE_KB))
+
 
 
 def compare_files(file_a, file_b):
@@ -361,58 +332,169 @@ def compare_files(file_a, file_b):
     return result, code_a, code_b, model_name
 
 
-def add_history_entry(file_a_name, file_b_name, provider_name, model_name, result):
+
+def add_history_entry(file_a_name, file_b_name, provider_name, model_name, result: StructuredCompareResult):
     entry = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "file_a_name": file_a_name,
         "file_b_name": file_b_name,
         "provider_name": provider_name,
         "model_name": model_name,
-        "result": result,
+        "score": result.score,
+        "result": result.to_dict(),
     }
-    st.session_state.history.insert(0, entry)
-    st.session_state.history = st.session_state.history[:10]
+    save_history_entry(entry)
+
 
 
 def render_previews():
     if not st.session_state.last_code_a or not st.session_state.last_code_b:
         return
-
     with st.expander("Preview files", expanded=False):
         col1, col2 = st.columns(2)
-
         with col1:
             st.markdown("**File A: {0}**".format(st.session_state.last_file_a_name))
-            st.code(
-                st.session_state.last_code_a,
-                language=detect_language_from_extension(st.session_state.last_file_a_name),
-            )
-
+            st.code(st.session_state.last_code_a, language=detect_language_from_extension(st.session_state.last_file_a_name))
         with col2:
             st.markdown("**File B: {0}**".format(st.session_state.last_file_b_name))
-            st.code(
-                st.session_state.last_code_b,
-                language=detect_language_from_extension(st.session_state.last_file_b_name),
-            )
+            st.code(st.session_state.last_code_b, language=detect_language_from_extension(st.session_state.last_file_b_name))
+
+
+
+def render_result_summary(result: StructuredCompareResult):
+    st.subheader("Overview")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Score", "{0:.1f}/10".format(result.score))
+    with col2:
+        st.metric("Issues", len(result.issues))
+    with col3:
+        high_count = len([item for item in result.issues if item.severity in {"high", "critical"}])
+        st.metric("High/Critical", high_count)
+    with col4:
+        st.metric("Suggestions", len(result.suggestions))
+
+    st.markdown("### Summary")
+    st.write(result.summary)
+
+    if result.parsing_notes:
+        with st.expander("Parsing notes", expanded=False):
+            for note in result.parsing_notes:
+                st.warning(note)
+
+
+
+def render_changes_tab(result: StructuredCompareResult):
+    if not result.changes_detected:
+        st.info("No structured list of changes was returned.")
+        return
+    for item in result.changes_detected:
+        st.markdown("- {0}".format(item))
+
+
+
+def render_issues_tab(result: StructuredCompareResult):
+    if not result.issues:
+        st.success("No structured issues were found.")
+        return
+
+    severity_filter = st.multiselect(
+        "Filter by severity",
+        options=["critical", "high", "medium", "low"],
+        default=["critical", "high", "medium", "low"],
+    )
+    category_filter = st.multiselect(
+        "Filter by category",
+        options=sorted({issue.category for issue in result.issues}),
+        default=sorted({issue.category for issue in result.issues}),
+    )
+
+    filtered = [
+        issue for issue in result.issues
+        if issue.severity in severity_filter and issue.category in category_filter
+    ]
+
+    if not filtered:
+        st.info("No issues match the selected filters.")
+        return
+
+    for issue in filtered:
+        color = SEVERITY_COLORS.get(issue.severity, "#9ca3af")
+        meta = []
+        if issue.file:
+            meta.append(issue.file)
+        if issue.line is not None:
+            meta.append("line {0}".format(issue.line))
+        st.markdown(
+            """
+            <div class="ccai-issue" style="border-left-color:{0};">
+                <div>
+                    <span class="ccai-badge" style="background:{0};">{1}</span>
+                    <span class="ccai-badge" style="background:#6b7280;">{2}</span>
+                </div>
+                <div class="ccai-issue-title">{3}</div>
+                <div>{4}</div>
+                <div class="ccai-meta">{5}</div>
+            </div>
+            """.format(
+                color,
+                escape(issue.severity),
+                escape(issue.category),
+                escape(issue.title),
+                escape(issue.description),
+                escape(" · ".join(meta)) if meta else "No file/line context provided.",
+            ),
+            unsafe_allow_html=True,
+        )
+
+
+
+def render_suggestions_tab(result: StructuredCompareResult):
+    if not result.suggestions:
+        st.info("No suggestions were returned.")
+        return
+    for item in result.suggestions:
+        with st.container(border=True):
+            st.markdown("**{0}**".format(item.title))
+            st.write(item.description)
+
+
+
+def render_raw_tab(result: StructuredCompareResult):
+    payload = result.to_dict()
+    st.download_button(
+        label="Download JSON",
+        data=json.dumps(payload, ensure_ascii=False, indent=2),
+        file_name="code_review_result.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+    st.code(json.dumps(payload, ensure_ascii=False, indent=2), language="json")
+
 
 
 def render_history_tab():
     st.subheader("History")
-
-    if not st.session_state.history:
-        st.info("No comparisons yet in this session.")
+    items = list_history_entries(HISTORY_LIMIT)
+    if not items:
+        st.info("No comparisons saved yet.")
         return
 
-    for index, item in enumerate(st.session_state.history):
-        title = "{0} · {1} → {2} · {3}/{4}".format(
-            item["timestamp"],
-            item["file_a_name"],
-            item["file_b_name"],
-            item["provider_name"],
-            item["model_name"],
+    for index, item in enumerate(items):
+        result = item.get("result", {})
+        title = "{0} · {1} → {2} · {3}/{4} · score {5:.1f}".format(
+            item.get("created_at", ""),
+            item.get("file_a_name", ""),
+            item.get("file_b_name", ""),
+            item.get("provider_name", ""),
+            item.get("model_name", ""),
+            float(item.get("score", 0) or 0),
         )
         with st.expander(title, expanded=(index == 0)):
-            st.markdown(item["result"])
+            st.write(result.get("summary", "No summary."))
+            st.caption("Issues: {0} · Suggestions: {1}".format(len(result.get("issues", [])), len(result.get("suggestions", []))))
+            st.code(json.dumps(result, ensure_ascii=False, indent=2), language="json")
+
 
 
 def main():
@@ -423,12 +505,9 @@ def main():
 
     with compare_tab:
         file_a, file_b = render_upload_area()
-
         col1, col2 = st.columns([1, 4])
-
         with col1:
             compare_clicked = st.button("Compare", type="primary", use_container_width=True)
-
         with col2:
             if not file_a or not file_b:
                 st.info("Upload 2 files to start the comparison.")
@@ -446,27 +525,28 @@ def main():
                         st.session_state.last_code_b = code_b
                         st.session_state.last_file_a_name = file_a.name
                         st.session_state.last_file_b_name = file_b.name
-                        add_history_entry(
-                            file_a_name=file_a.name,
-                            file_b_name=file_b.name,
-                            provider_name=st.session_state.selected_provider,
-                            model_name=model_name,
-                            result=result,
-                        )
+                        add_history_entry(file_a.name, file_b.name, st.session_state.selected_provider, model_name, result)
                     except Exception as exc:
-                        st.session_state.compare_result = ""
+                        st.session_state.compare_result = None
                         st.session_state.last_error = "Unexpected error: {0}".format(exc)
 
         if st.session_state.last_error:
             st.error(st.session_state.last_error)
-            with st.expander("Technical details", expanded=False):
-                st.code(traceback.format_exc())
 
         render_previews()
 
-        if st.session_state.compare_result:
-            st.markdown("## Result")
-            st.markdown(st.session_state.compare_result)
+        result = st.session_state.compare_result
+        if result:
+            render_result_summary(result)
+            tab1, tab2, tab3, tab4 = st.tabs(["Changes", "Issues", "Suggestions", "Raw JSON"])
+            with tab1:
+                render_changes_tab(result)
+            with tab2:
+                render_issues_tab(result)
+            with tab3:
+                render_suggestions_tab(result)
+            with tab4:
+                render_raw_tab(result)
 
     with history_tab:
         render_history_tab()
