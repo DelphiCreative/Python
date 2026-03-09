@@ -41,6 +41,16 @@ Explain the most important functional and technical differences.
 Do not pretend there is a diff block available.
 """.strip()
 
+
+MULTI_FILE_INSTRUCTION = """
+Review mode: multi_file_review.
+This file pair is part of a larger multi-file review.
+Focus on the important technical changes for this specific file pair.
+Keep the analysis concise and practical because many files may be reviewed in the same batch.
+Prioritize bugs, regressions and maintainability issues introduced by the changed lines.
+If there are no meaningful code changes, say so clearly.
+""".strip()
+
 DIFF_REVIEW_INSTRUCTION = """
 Review mode: diff_review.
 Focus primarily on the diff block and the modified areas.
@@ -152,3 +162,26 @@ def build_diff_review_prompt(
     schema_instruction = JSON_SCHEMA_INSTRUCTION.replace("{{response_language}}", response_language)
     diff_block = "Unified diff:\n```diff\n{0}\n```".format(diff_text)
     return base_prompt.strip() + "\n\n" + DIFF_REVIEW_INSTRUCTION + "\n\n" + diff_block + "\n\n" + schema_instruction
+
+
+def build_multi_file_prompt(
+    template: str,
+    file_a_name: str,
+    file_b_name: str,
+    code_a: str,
+    code_b: str,
+    diff_text: str,
+    response_language: str,
+) -> str:
+    base_prompt = _replace_common_placeholders(
+        template=template,
+        file_a_name=file_a_name,
+        file_b_name=file_b_name,
+        code_a=code_a,
+        code_b=code_b,
+        response_language=response_language,
+    )
+    diff_text = diff_text.strip() or "No diff content available."
+    schema_instruction = JSON_SCHEMA_INSTRUCTION.replace("{{response_language}}", response_language)
+    diff_block = "Unified diff:\n```diff\n{0}\n```".format(diff_text)
+    return base_prompt.strip() + "\n\n" + MULTI_FILE_INSTRUCTION + "\n\n" + diff_block + "\n\n" + schema_instruction

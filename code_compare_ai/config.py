@@ -29,3 +29,5 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
 
 CUSTOM_PROMPTS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
+
+MAX_MULTI_FILE_PAIRS = int(os.getenv("MAX_MULTI_FILE_PAIRS", "20"))
