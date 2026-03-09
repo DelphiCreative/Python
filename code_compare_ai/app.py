@@ -20,21 +20,30 @@ from config import (
 )
 from core.compare_service import CompareService
 from core.models import CompareRequest, ProviderConfig, StructuredCompareResult
-from core.prompts import build_compare_prompt, list_prompt_files, load_prompt_template, save_custom_prompt
+from core.prompts import (
+    build_compare_prompt,
+    build_diff_review_prompt,
+    list_prompt_files,
+    load_prompt_template,
+    save_custom_prompt,
+)
 from core.storage import init_history_db, list_history_entries, save_history_entry
-from utils import detect_language_from_extension, read_uploaded_file
+from utils import count_diff_changes, detect_language_from_extension, generate_unified_diff, read_uploaded_file
 
 st.set_page_config(page_title="Code Compare AI", page_icon="🧠", layout="wide")
 
 PROVIDER_OPTIONS = ["gemini", "openai", "ollama"]
 LANGUAGE_OPTIONS = ["Portuguese (Brazil)", "English"]
+REVIEW_MODE_OPTIONS = {
+    "file_compare": "File Compare",
+    "diff_review": "Diff Review",
+}
 SEVERITY_COLORS = {
     "critical": "#ef4444",
     "high": "#f97316",
     "medium": "#eab308",
     "low": "#22c55e",
 }
-
 
 
 def inject_styles():
@@ -94,7 +103,6 @@ def inject_styles():
     )
 
 
-
 def initialize_session():
     init_history_db()
     prompt_files = list_prompt_files()
@@ -102,6 +110,7 @@ def initialize_session():
 
     defaults = {
         "selected_provider": AI_PROVIDER if AI_PROVIDER in PROVIDER_OPTIONS else "gemini",
+        "selected_review_mode": "file_compare",
         "response_language": DEFAULT_RESPONSE_LANGUAGE if DEFAULT_RESPONSE_LANGUAGE in LANGUAGE_OPTIONS else "Portuguese (Brazil)",
         "selected_prompt_file": default_prompt_name,
         "prompt_text": load_prompt_template(default_prompt_name) if default_prompt_name else "",
@@ -117,6 +126,7 @@ def initialize_session():
         "last_code_b": "",
         "last_file_a_name": "",
         "last_file_b_name": "",
+        "last_diff_text": "",
     }
 
     for key, value in defaults.items():
@@ -128,8 +138,7 @@ initialize_session()
 inject_styles()
 
 
-
-def get_current_model(provider_name):
+def get_current_model(provider_name: str) -> str:
     if provider_name == "gemini":
         return st.session_state.gemini_model.strip() or GEMINI_MODEL
     if provider_name == "openai":
@@ -139,8 +148,7 @@ def get_current_model(provider_name):
     raise ValueError("Unsupported provider: {0}".format(provider_name))
 
 
-
-def get_effective_api_key(provider_name):
+def get_effective_api_key(provider_name: str) -> str:
     entered = st.session_state.provider_api_key.strip()
     if entered:
         return entered
@@ -201,10 +209,23 @@ def prompt_editor_dialog():
                 st.error(str(exc))
 
 
-
 def render_sidebar():
     st.sidebar.title("Settings")
-    provider = st.sidebar.selectbox("Provider", PROVIDER_OPTIONS, index=PROVIDER_OPTIONS.index(st.session_state.selected_provider), key="selected_provider")
+    st.sidebar.selectbox(
+        "Provider",
+        PROVIDER_OPTIONS,
+        index=PROVIDER_OPTIONS.index(st.session_state.selected_provider),
+        key="selected_provider",
+    )
+    st.sidebar.selectbox(
+        "Review mode",
+        options=list(REVIEW_MODE_OPTIONS.keys()),
+        format_func=lambda value: REVIEW_MODE_OPTIONS[value],
+        index=list(REVIEW_MODE_OPTIONS.keys()).index(st.session_state.selected_review_mode),
+        key="selected_review_mode",
+    )
+
+    provider = st.session_state.selected_provider
 
     st.sidebar.subheader("Connection")
     if provider == "gemini":
@@ -228,7 +249,6 @@ def render_sidebar():
         st.caption("History limit: {0}".format(HISTORY_LIMIT))
 
 
-
 def info_card(title, value):
     st.markdown(
         """
@@ -241,10 +261,9 @@ def info_card(title, value):
     )
 
 
-
 def render_header():
-    st.title("Code Compare AI v6")
-    st.caption("Structured AI code review with Gemini, OpenAI or Ollama using the same interface.")
+    st.title("Code Compare AI v7")
+    st.caption("Diff Review added: compare complete files or focus the review on changed lines using the same interface.")
 
     action_col1, action_col2, _ = st.columns([1, 1, 4])
     with action_col1:
@@ -258,18 +277,20 @@ def render_header():
             st.session_state.last_code_b = ""
             st.session_state.last_file_a_name = ""
             st.session_state.last_file_b_name = ""
+            st.session_state.last_diff_text = ""
             st.rerun()
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         info_card("Provider", "🤖 {0}".format(st.session_state.selected_provider))
     with col2:
         info_card("Model", "🧠 {0}".format(get_current_model(st.session_state.selected_provider)))
     with col3:
-        info_card("Prompt", "📄 {0}".format(st.session_state.selected_prompt_file))
+        info_card("Mode", "🔀 {0}".format(REVIEW_MODE_OPTIONS[st.session_state.selected_review_mode]))
     with col4:
+        info_card("Prompt", "📄 {0}".format(st.session_state.selected_prompt_file))
+    with col5:
         info_card("Language", "🌐 {0}".format(st.session_state.response_language))
-
 
 
 def render_upload_area():
@@ -281,12 +302,10 @@ def render_upload_area():
     return file_a, file_b
 
 
-
 def validate_file_size(uploaded_file):
     max_size_bytes = MAX_FILE_SIZE_KB * 1024
     if uploaded_file.size > max_size_bytes:
         raise ValueError("File '{0}' exceeds the limit of {1} KB.".format(uploaded_file.name, MAX_FILE_SIZE_KB))
-
 
 
 def compare_files(file_a, file_b):
@@ -295,15 +314,28 @@ def compare_files(file_a, file_b):
 
     code_a = read_uploaded_file(file_a)
     code_b = read_uploaded_file(file_b)
+    review_mode = st.session_state.selected_review_mode
+    diff_text = generate_unified_diff(file_a.name, code_a, file_b.name, code_b)
 
-    prompt_text = build_compare_prompt(
-        template=st.session_state.prompt_text,
-        file_a_name=file_a.name,
-        file_b_name=file_b.name,
-        code_a=code_a,
-        code_b=code_b,
-        response_language=st.session_state.response_language,
-    )
+    if review_mode == "diff_review":
+        prompt_text = build_diff_review_prompt(
+            template=st.session_state.prompt_text,
+            file_a_name=file_a.name,
+            file_b_name=file_b.name,
+            code_a=code_a,
+            code_b=code_b,
+            diff_text=diff_text,
+            response_language=st.session_state.response_language,
+        )
+    else:
+        prompt_text = build_compare_prompt(
+            template=st.session_state.prompt_text,
+            file_a_name=file_a.name,
+            file_b_name=file_b.name,
+            code_a=code_a,
+            code_b=code_b,
+            response_language=st.session_state.response_language,
+        )
 
     provider_name = st.session_state.selected_provider
     model_name = get_current_model(provider_name)
@@ -325,12 +357,13 @@ def compare_files(file_a, file_b):
         response_language=st.session_state.response_language,
         provider_name=provider_name,
         model_name=model_name,
+        review_mode=review_mode,
+        diff_text=diff_text,
     )
 
     service = CompareService()
     result = service.compare(request, provider_config)
-    return result, code_a, code_b, model_name
-
+    return result, code_a, code_b, diff_text, model_name
 
 
 def add_history_entry(file_a_name, file_b_name, provider_name, model_name, result: StructuredCompareResult):
@@ -340,11 +373,11 @@ def add_history_entry(file_a_name, file_b_name, provider_name, model_name, resul
         "file_b_name": file_b_name,
         "provider_name": provider_name,
         "model_name": model_name,
+        "review_mode": st.session_state.selected_review_mode,
         "score": result.score,
         "result": result.to_dict(),
     }
     save_history_entry(entry)
-
 
 
 def render_previews():
@@ -359,6 +392,11 @@ def render_previews():
             st.markdown("**File B: {0}**".format(st.session_state.last_file_b_name))
             st.code(st.session_state.last_code_b, language=detect_language_from_extension(st.session_state.last_file_b_name))
 
+    if st.session_state.last_diff_text:
+        with st.expander("Unified diff", expanded=(st.session_state.selected_review_mode == "diff_review")):
+            added, removed = count_diff_changes(st.session_state.last_diff_text)
+            st.caption("Added lines: {0} · Removed lines: {1}".format(added, removed))
+            st.code(st.session_state.last_diff_text, language="diff")
 
 
 def render_result_summary(result: StructuredCompareResult):
@@ -383,14 +421,12 @@ def render_result_summary(result: StructuredCompareResult):
                 st.warning(note)
 
 
-
 def render_changes_tab(result: StructuredCompareResult):
     if not result.changes_detected:
         st.info("No structured list of changes was returned.")
         return
     for item in result.changes_detected:
         st.markdown("- {0}".format(item))
-
 
 
 def render_issues_tab(result: StructuredCompareResult):
@@ -403,10 +439,11 @@ def render_issues_tab(result: StructuredCompareResult):
         options=["critical", "high", "medium", "low"],
         default=["critical", "high", "medium", "low"],
     )
+    category_options = sorted({issue.category for issue in result.issues})
     category_filter = st.multiselect(
         "Filter by category",
-        options=sorted({issue.category for issue in result.issues}),
-        default=sorted({issue.category for issue in result.issues}),
+        options=category_options,
+        default=category_options,
     )
 
     filtered = [
@@ -448,7 +485,6 @@ def render_issues_tab(result: StructuredCompareResult):
         )
 
 
-
 def render_suggestions_tab(result: StructuredCompareResult):
     if not result.suggestions:
         st.info("No suggestions were returned.")
@@ -457,7 +493,6 @@ def render_suggestions_tab(result: StructuredCompareResult):
         with st.container(border=True):
             st.markdown("**{0}**".format(item.title))
             st.write(item.description)
-
 
 
 def render_raw_tab(result: StructuredCompareResult):
@@ -472,7 +507,6 @@ def render_raw_tab(result: StructuredCompareResult):
     st.code(json.dumps(payload, ensure_ascii=False, indent=2), language="json")
 
 
-
 def render_history_tab():
     st.subheader("History")
     items = list_history_entries(HISTORY_LIMIT)
@@ -482,8 +516,9 @@ def render_history_tab():
 
     for index, item in enumerate(items):
         result = item.get("result", {})
-        title = "{0} · {1} → {2} · {3}/{4} · score {5:.1f}".format(
+        title = "{0} · {1} · {2} → {3} · {4}/{5} · score {6:.1f}".format(
             item.get("created_at", ""),
+            item.get("review_mode", "file_compare"),
             item.get("file_a_name", ""),
             item.get("file_b_name", ""),
             item.get("provider_name", ""),
@@ -492,9 +527,13 @@ def render_history_tab():
         )
         with st.expander(title, expanded=(index == 0)):
             st.write(result.get("summary", "No summary."))
-            st.caption("Issues: {0} · Suggestions: {1}".format(len(result.get("issues", [])), len(result.get("suggestions", []))))
+            st.caption(
+                "Issues: {0} · Suggestions: {1}".format(
+                    len(result.get("issues", [])),
+                    len(result.get("suggestions", [])),
+                )
+            )
             st.code(json.dumps(result, ensure_ascii=False, indent=2), language="json")
-
 
 
 def main():
@@ -504,6 +543,8 @@ def main():
     compare_tab, history_tab = st.tabs(["Compare", "History"])
 
     with compare_tab:
+        if st.session_state.selected_review_mode == "diff_review":
+            st.info("Diff Review focuses the AI analysis on the changed lines while still using the full files as context.")
         file_a, file_b = render_upload_area()
         col1, col2 = st.columns([1, 4])
         with col1:
@@ -518,13 +559,14 @@ def main():
             else:
                 with st.spinner("Comparing files..."):
                     try:
-                        result, code_a, code_b, model_name = compare_files(file_a, file_b)
+                        result, code_a, code_b, diff_text, model_name = compare_files(file_a, file_b)
                         st.session_state.compare_result = result
                         st.session_state.last_error = ""
                         st.session_state.last_code_a = code_a
                         st.session_state.last_code_b = code_b
                         st.session_state.last_file_a_name = file_a.name
                         st.session_state.last_file_b_name = file_b.name
+                        st.session_state.last_diff_text = diff_text
                         add_history_entry(file_a.name, file_b.name, st.session_state.selected_provider, model_name, result)
                     except Exception as exc:
                         st.session_state.compare_result = None

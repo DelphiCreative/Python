@@ -34,6 +34,21 @@ If a list is empty, return an empty array.
 All values must be in {{response_language}}.
 """.strip()
 
+FILE_COMPARE_INSTRUCTION = """
+Review mode: file_compare.
+Compare the two full files as complete versions of the same source.
+Explain the most important functional and technical differences.
+Do not pretend there is a diff block available.
+""".strip()
+
+DIFF_REVIEW_INSTRUCTION = """
+Review mode: diff_review.
+Focus primarily on the diff block and the modified areas.
+Use the full file contents only as supporting context.
+Prioritize issues introduced by the changed lines.
+If the diff is empty, explain that no meaningful code change was detected.
+""".strip()
+
 
 def list_prompt_files() -> List[str]:
     prompt_names = []
@@ -54,7 +69,6 @@ def list_prompt_files() -> List[str]:
     return unique_names
 
 
-
 def resolve_prompt_path(prompt_name: str) -> Path:
     custom_path = CUSTOM_PROMPTS_DIR / prompt_name
     if custom_path.exists():
@@ -67,11 +81,9 @@ def resolve_prompt_path(prompt_name: str) -> Path:
     raise FileNotFoundError("Prompt file not found: {0}".format(prompt_name))
 
 
-
 def load_prompt_template(prompt_name: str = DEFAULT_PROMPT_FILE) -> str:
     path = resolve_prompt_path(prompt_name)
     return path.read_text(encoding="utf-8")
-
 
 
 def save_custom_prompt(prompt_name: str, content: str) -> Path:
@@ -87,6 +99,16 @@ def save_custom_prompt(prompt_name: str, content: str) -> Path:
     return path
 
 
+def _replace_common_placeholders(template: str, file_a_name: str, file_b_name: str, code_a: str, code_b: str, response_language: str) -> str:
+    return (
+        template
+        .replace("{{response_language}}", response_language)
+        .replace("{{file_a_name}}", file_a_name)
+        .replace("{{file_b_name}}", file_b_name)
+        .replace("{{code_a}}", code_a)
+        .replace("{{code_b}}", code_b)
+    )
+
 
 def build_compare_prompt(
     template: str,
@@ -96,16 +118,37 @@ def build_compare_prompt(
     code_b: str,
     response_language: str,
 ) -> str:
-    base_prompt = (
-        template
-        .replace("{{response_language}}", response_language)
-        .replace("{{file_a_name}}", file_a_name)
-        .replace("{{file_b_name}}", file_b_name)
-        .replace("{{code_a}}", code_a)
-        .replace("{{code_b}}", code_b)
+    base_prompt = _replace_common_placeholders(
+        template=template,
+        file_a_name=file_a_name,
+        file_b_name=file_b_name,
+        code_a=code_a,
+        code_b=code_b,
+        response_language=response_language,
     )
 
     schema_instruction = JSON_SCHEMA_INSTRUCTION.replace("{{response_language}}", response_language)
-    return base_prompt.strip() + "
+    return base_prompt.strip() + "\n\n" + FILE_COMPARE_INSTRUCTION + "\n\n" + schema_instruction
 
-" + schema_instruction
+
+def build_diff_review_prompt(
+    template: str,
+    file_a_name: str,
+    file_b_name: str,
+    code_a: str,
+    code_b: str,
+    diff_text: str,
+    response_language: str,
+) -> str:
+    base_prompt = _replace_common_placeholders(
+        template=template,
+        file_a_name=file_a_name,
+        file_b_name=file_b_name,
+        code_a=code_a,
+        code_b=code_b,
+        response_language=response_language,
+    )
+    diff_text = diff_text.strip() or "No diff content available."
+    schema_instruction = JSON_SCHEMA_INSTRUCTION.replace("{{response_language}}", response_language)
+    diff_block = "Unified diff:\n```diff\n{0}\n```".format(diff_text)
+    return base_prompt.strip() + "\n\n" + DIFF_REVIEW_INSTRUCTION + "\n\n" + diff_block + "\n\n" + schema_instruction

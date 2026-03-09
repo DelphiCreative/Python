@@ -12,6 +12,8 @@ class CompareRequest:
     response_language: str
     provider_name: str
     model_name: str
+    review_mode: str = "file_compare"
+    diff_text: str = ""
 
 
 @dataclass
