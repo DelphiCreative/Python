@@ -17,6 +17,8 @@ DEFAULT_RESPONSE_LANGUAGE = os.getenv("DEFAULT_RESPONSE_LANGUAGE", "Portuguese (
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "120"))
 MAX_FILE_SIZE_KB = int(os.getenv("MAX_FILE_SIZE_KB", "300"))
 HISTORY_LIMIT = int(os.getenv("HISTORY_LIMIT", "20"))
+MAX_MULTI_FILE_PAIRS = int(os.getenv("MAX_MULTI_FILE_PAIRS", "20"))
+GIT_REVIEW_MAX_FILES = int(os.getenv("GIT_REVIEW_MAX_FILES", "15"))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
@@ -26,8 +28,8 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
+OLLAMA_TIMEOUT_SECONDS = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "300"))
+OLLAMA_MAX_PROMPT_CHARS = int(os.getenv("OLLAMA_MAX_PROMPT_CHARS", "18000"))
 
 CUSTOM_PROMPTS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
-
-MAX_MULTI_FILE_PAIRS = int(os.getenv("MAX_MULTI_FILE_PAIRS", "20"))

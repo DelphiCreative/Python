@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import List
 
 from config import CUSTOM_PROMPTS_DIR, DEFAULT_PROMPT_FILE, PROMPTS_DIR
+from utils import detect_language_from_extension
 
 
 JSON_SCHEMA_INSTRUCTION = """
@@ -41,7 +42,6 @@ Explain the most important functional and technical differences.
 Do not pretend there is a diff block available.
 """.strip()
 
-
 MULTI_FILE_INSTRUCTION = """
 Review mode: multi_file_review.
 This file pair is part of a larger multi-file review.
@@ -59,13 +59,28 @@ Prioritize issues introduced by the changed lines.
 If the diff is empty, explain that no meaningful code change was detected.
 """.strip()
 
+GIT_REVIEW_INSTRUCTION = """
+Review mode: git_review.
+This review comes from a local Git repository.
+Focus on changes between the HEAD version and the current working tree file.
+Prioritize regressions, logic problems, maintainability issues and risks introduced by the uncommitted changes.
+If the file is new, evaluate the current implementation quality and call out important risks.
+""".strip()
+
+LANGUAGE_TEMPLATE_MAP = {
+    "pascal": "delphi_compare_prompt.md",
+    "csharp": "csharp_compare_prompt.md",
+    "python": "python_compare_prompt.md",
+    "sql": "sql_compare_prompt.md",
+    "javascript": "javascript_compare_prompt.md",
+    "typescript": "javascript_compare_prompt.md",
+}
+
 
 def list_prompt_files() -> List[str]:
     prompt_names = []
-
     if PROMPTS_DIR.exists():
         prompt_names.extend(sorted([p.name for p in PROMPTS_DIR.glob("*.md")]))
-
     if CUSTOM_PROMPTS_DIR.exists():
         prompt_names.extend(sorted([p.name for p in CUSTOM_PROMPTS_DIR.glob("*.md")]))
 
@@ -75,7 +90,6 @@ def list_prompt_files() -> List[str]:
         if name not in seen:
             seen.add(name)
             unique_names.append(name)
-
     return unique_names
 
 
@@ -83,11 +97,9 @@ def resolve_prompt_path(prompt_name: str) -> Path:
     custom_path = CUSTOM_PROMPTS_DIR / prompt_name
     if custom_path.exists():
         return custom_path
-
     default_path = PROMPTS_DIR / prompt_name
     if default_path.exists():
         return default_path
-
     raise FileNotFoundError("Prompt file not found: {0}".format(prompt_name))
 
 
@@ -100,13 +112,22 @@ def save_custom_prompt(prompt_name: str, content: str) -> Path:
     safe_name = prompt_name.strip()
     if not safe_name:
         raise ValueError("Prompt name cannot be empty.")
-
     if not safe_name.lower().endswith(".md"):
         safe_name += ".md"
-
     path = CUSTOM_PROMPTS_DIR / safe_name
     path.write_text(content, encoding="utf-8")
     return path
+
+
+def get_effective_prompt_name(selected_prompt_file: str, file_name: str) -> str:
+    if selected_prompt_file != DEFAULT_PROMPT_FILE:
+        return selected_prompt_file
+    language = detect_language_from_extension(file_name)
+    return LANGUAGE_TEMPLATE_MAP.get(language, DEFAULT_PROMPT_FILE)
+
+
+def get_effective_prompt_template(selected_prompt_file: str, file_name: str) -> str:
+    return load_prompt_template(get_effective_prompt_name(selected_prompt_file, file_name))
 
 
 def _replace_common_placeholders(template: str, file_a_name: str, file_b_name: str, code_a: str, code_b: str, response_language: str) -> str:
@@ -120,68 +141,32 @@ def _replace_common_placeholders(template: str, file_a_name: str, file_b_name: s
     )
 
 
-def build_compare_prompt(
-    template: str,
-    file_a_name: str,
-    file_b_name: str,
-    code_a: str,
-    code_b: str,
-    response_language: str,
-) -> str:
-    base_prompt = _replace_common_placeholders(
-        template=template,
-        file_a_name=file_a_name,
-        file_b_name=file_b_name,
-        code_a=code_a,
-        code_b=code_b,
-        response_language=response_language,
-    )
-
+def build_compare_prompt(template: str, file_a_name: str, file_b_name: str, code_a: str, code_b: str, response_language: str) -> str:
+    base_prompt = _replace_common_placeholders(template, file_a_name, file_b_name, code_a, code_b, response_language)
     schema_instruction = JSON_SCHEMA_INSTRUCTION.replace("{{response_language}}", response_language)
     return base_prompt.strip() + "\n\n" + FILE_COMPARE_INSTRUCTION + "\n\n" + schema_instruction
 
 
-def build_diff_review_prompt(
-    template: str,
-    file_a_name: str,
-    file_b_name: str,
-    code_a: str,
-    code_b: str,
-    diff_text: str,
-    response_language: str,
-) -> str:
-    base_prompt = _replace_common_placeholders(
-        template=template,
-        file_a_name=file_a_name,
-        file_b_name=file_b_name,
-        code_a=code_a,
-        code_b=code_b,
-        response_language=response_language,
-    )
+def build_diff_review_prompt(template: str, file_a_name: str, file_b_name: str, code_a: str, code_b: str, diff_text: str, response_language: str) -> str:
+    base_prompt = _replace_common_placeholders(template, file_a_name, file_b_name, code_a, code_b, response_language)
     diff_text = diff_text.strip() or "No diff content available."
     schema_instruction = JSON_SCHEMA_INSTRUCTION.replace("{{response_language}}", response_language)
     diff_block = "Unified diff:\n```diff\n{0}\n```".format(diff_text)
     return base_prompt.strip() + "\n\n" + DIFF_REVIEW_INSTRUCTION + "\n\n" + diff_block + "\n\n" + schema_instruction
 
 
-def build_multi_file_prompt(
-    template: str,
-    file_a_name: str,
-    file_b_name: str,
-    code_a: str,
-    code_b: str,
-    diff_text: str,
-    response_language: str,
-) -> str:
-    base_prompt = _replace_common_placeholders(
-        template=template,
-        file_a_name=file_a_name,
-        file_b_name=file_b_name,
-        code_a=code_a,
-        code_b=code_b,
-        response_language=response_language,
-    )
+def build_multi_file_prompt(template: str, file_a_name: str, file_b_name: str, code_a: str, code_b: str, diff_text: str, response_language: str) -> str:
+    base_prompt = _replace_common_placeholders(template, file_a_name, file_b_name, code_a, code_b, response_language)
     diff_text = diff_text.strip() or "No diff content available."
     schema_instruction = JSON_SCHEMA_INSTRUCTION.replace("{{response_language}}", response_language)
     diff_block = "Unified diff:\n```diff\n{0}\n```".format(diff_text)
     return base_prompt.strip() + "\n\n" + MULTI_FILE_INSTRUCTION + "\n\n" + diff_block + "\n\n" + schema_instruction
+
+
+def build_git_review_prompt(template: str, file_a_name: str, file_b_name: str, code_a: str, code_b: str, diff_text: str, response_language: str, repo_path: str) -> str:
+    base_prompt = _replace_common_placeholders(template, file_a_name, file_b_name, code_a, code_b, response_language)
+    diff_text = diff_text.strip() or "No diff content available."
+    schema_instruction = JSON_SCHEMA_INSTRUCTION.replace("{{response_language}}", response_language)
+    repo_block = "Repository path: {0}".format(repo_path)
+    diff_block = "Unified diff:\n```diff\n{0}\n```".format(diff_text)
+    return base_prompt.strip() + "\n\n" + GIT_REVIEW_INSTRUCTION + "\n\n" + repo_block + "\n\n" + diff_block + "\n\n" + schema_instruction

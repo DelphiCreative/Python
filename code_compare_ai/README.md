@@ -1,45 +1,73 @@
-# Code Compare AI v8
+# Code Compare AI v10
 
-Code Compare AI v8 builds on v7 and keeps the existing File Compare and Diff Review modes.
+AI-powered code review tool that analyzes file changes, detects potential issues, and generates structured technical feedback using multiple AI providers.
 
-## What's new in v8
+## What is new in v10
 
-- Manual Multi-File Review
-- No ZIP uploads required
-- Match files by file name on both sides
-- Per-file score
-- Consolidated project score
-- Automatic Delphi prompt selection for `.pas` and `.dpr` when using the default prompt
-- History support for project reviews
+- Automatic language detection based on file extension
+- Language-aware prompt selection for Delphi, Python, C#, SQL and JavaScript/TypeScript
+- Improved score presentation with visual quality panels
+- Existing review modes preserved:
+  - File Compare
+  - Diff Review
+  - Multi-File Review
+  - Git Review
 
-## Review modes
+## Supported AI providers
 
-- **File Compare**: compares two full files
-- **Diff Review**: focuses the AI on changed lines
-- **Multi-File Review**: compares multiple file pairs matched by file name
+- Gemini
+- OpenAI
+- Ollama
 
-## Running
+## Main capabilities
+
+- Compare two files with structured AI review output
+- Focus on modified lines with Diff Review
+- Review multiple matched files in one run
+- Review modified files from a local Git repository
+- Persist history in SQLite
+- Filter issues by severity and category
+- Download raw JSON review output
+
+## Language-aware prompts
+
+When the default prompt template is selected, the application automatically switches to a specialized prompt according to the detected language:
+
+- `.pas`, `.dpr` -> Delphi / Object Pascal
+- `.py` -> Python
+- `.cs` -> C#
+- `.sql` -> SQL
+- `.js`, `.ts` -> JavaScript / TypeScript
+
+Custom prompt templates still work normally. If you select a custom prompt, the automatic language-based switch is not applied.
+
+## Run
 
 ```bash
+python -m venv venv
+venv\Scriptsctivate
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Or use:
+## Suggested commit message
 
-```bat
-run.bat
+```text
+feat: add language-aware prompts and visual score panels (v10)
 ```
-
-## Multi-file notes
-
-- Upload multiple files in **Files A** and **Files B**
-- Pairing is done by **file name**
-- Duplicate names are not supported in multi-file mode
-- The number of matched pairs is limited by `MAX_MULTI_FILE_PAIRS` in `.env`
 
 ## Author
 
 Diego Cataneo  
 GitHub: https://github.com/DelphiCreative  
 YouTube: https://youtube.com/@delphicreative
+
+
+## Ollama local stability
+
+This version adds configurable local execution settings for Ollama:
+
+- `OLLAMA_TIMEOUT_SECONDS`
+- `OLLAMA_MAX_PROMPT_CHARS`
+
+You can also test the Ollama connection directly from the sidebar.

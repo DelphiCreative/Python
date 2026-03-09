@@ -23,6 +23,7 @@ class ProviderConfig:
     api_key: str = ""
     base_url: str = ""
     timeout_seconds: int = 120
+    max_prompt_chars: int = 0
 
 
 @dataclass
