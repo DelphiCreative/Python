@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 from html import escape
 
@@ -619,21 +620,34 @@ def compare_multiple_files(files_a, files_b):
     }, provider_config.model_name
 
 def refresh_git_files(repo_path):
-    repo_path = (repo_path or "").strip()
-    if not repo_path:
+    repo_path = os.path.abspath(os.path.normpath((repo_path or "").strip()))
+
+    if not repo_path or repo_path == ".":
         st.session_state.git_modified_files = []
+        st.session_state.git_selected_files = []
         st.session_state.git_repo_error = ""
         return
+
     try:
-        files = get_git_modified_files(repo_path, include_untracked=st.session_state.git_include_untracked)
+        files = get_git_modified_files(
+            repo_path,
+            include_untracked=st.session_state.git_include_untracked
+        )
+
         st.session_state.git_modified_files = files
         st.session_state.git_repo_error = ""
+
         valid_paths = [item["path"] for item in files]
-        st.session_state.git_selected_files = [path for path in st.session_state.git_selected_files if path in valid_paths]
+
+        st.session_state.git_selected_files = [
+            path for path in st.session_state.git_selected_files
+            if path in valid_paths
+        ]
+
     except GitError as exc:
         st.session_state.git_modified_files = []
+        st.session_state.git_selected_files = []
         st.session_state.git_repo_error = str(exc)
-
 
 def render_git_area():
     st.markdown("### Local Git repository")
@@ -674,7 +688,7 @@ def render_git_area():
     selected = st.multiselect(
         "Modified files",
         options=options,
-        default=st.session_state.git_selected_files,
+        #default=st.session_state.git_selected_files,
         format_func=lambda path: "{0} ({1})".format(path, status_lookup.get(path, "modified")),
         key="git_selected_files",
         help="Select one or more modified files to review.",
