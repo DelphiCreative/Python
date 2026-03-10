@@ -347,7 +347,7 @@ def render_score_panel(score: float, issues_count: int, high_count: int, suggest
 
 
 def render_header():
-    st.title("Code Compare AI v10.1")
+    st.title("Code Compare AI")
     st.caption("AI-powered code review with file compare, diff review, multi-file review, Git review, language-aware prompts, and improved Ollama stability.")
 
     action_col1, action_col2, _ = st.columns([1, 1, 4])
