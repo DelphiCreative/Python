@@ -1,73 +1,185 @@
-# Code Compare AI v10
+# Code Compare AI
 
-AI-powered code review tool that analyzes file changes, detects potential issues, and generates structured technical feedback using multiple AI providers.
+AI-powered code review tool designed to analyze code changes and generate structured technical feedback.
 
-## What is new in v10
+This project demonstrates how **Large Language Models (LLMs)** can assist developers during code review by analyzing source code changes, detecting potential issues, and suggesting improvements.
 
-- Automatic language detection based on file extension
-- Language-aware prompt selection for Delphi, Python, C#, SQL and JavaScript/TypeScript
-- Improved score presentation with visual quality panels
-- Existing review modes preserved:
-  - File Compare
-  - Diff Review
-  - Multi-File Review
-  - Git Review
+The system supports multiple AI providers including **OpenAI**, **Google Gemini**, and **local models via Ollama**.
 
-## Supported AI providers
+---
 
-- Gemini
-- OpenAI
-- Ollama
+# Features
 
-## Main capabilities
+### File Compare
 
-- Compare two files with structured AI review output
-- Focus on modified lines with Diff Review
-- Review multiple matched files in one run
-- Review modified files from a local Git repository
-- Persist history in SQLite
-- Filter issues by severity and category
-- Download raw JSON review output
+Compare two files and generate an AI-powered review of the entire code.
 
-## Language-aware prompts
+### Diff Review
 
-When the default prompt template is selected, the application automatically switches to a specialized prompt according to the detected language:
+Analyze only the modified lines between two files using unified diff.
 
-- `.pas`, `.dpr` -> Delphi / Object Pascal
-- `.py` -> Python
-- `.cs` -> C#
-- `.sql` -> SQL
-- `.js`, `.ts` -> JavaScript / TypeScript
+### Multi-File Review
 
-Custom prompt templates still work normally. If you select a custom prompt, the automatic language-based switch is not applied.
+Review multiple files in a single analysis session.
 
-## Run
+### Git Review
+
+Inspect modified files directly from a local Git repository.
+
+### Multi AI Providers
+
+Switch between different AI providers:
+
+* OpenAI
+* Google Gemini
+* Ollama (local LLMs)
+
+### Structured AI Output
+
+The system produces structured review results including:
+
+* Summary
+* Issues
+* Severity levels
+* Suggestions
+* Code quality score
+
+---
+
+# Architecture
+
+The system follows a modular architecture separating UI, review engine, prompts, and AI providers.
+
+```
+Streamlit UI
+     ↓
+Review Engine
+     ↓
+Prompt System
+     ↓
+Provider Layer
+     ↓
+OpenAI | Gemini | Ollama
+```
+
+This design allows the system to support new providers with minimal changes.
+
+---
+
+# Supported Review Modes
+
+| Mode              | Description                                  |
+| ----------------- | -------------------------------------------- |
+| File Compare      | Compare two files entirely                   |
+| Diff Review       | Analyze only modified lines                  |
+| Multi-File Review | Review multiple files                        |
+| Git Review        | Analyze modified files from a Git repository |
+
+---
+
+# Example AI Review Output
+
+```json
+{
+  "summary": "Refactoring improved readability but introduced a potential null reference risk.",
+  "score": 7.8,
+  "issues": [
+    {
+      "severity": "high",
+      "category": "bug",
+      "title": "Possible null reference",
+      "description": "Object may be null before method invocation."
+    }
+  ]
+}
+```
+
+---
+
+# Technologies Used
+
+* Python
+* Streamlit
+* OpenAI API
+* Google Gemini API
+* Ollama (local LLMs)
+* Git CLI integration
+
+---
+
+# Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/DelphiCreative/Python.git
+cd code_compare_ai
+```
+
+Create a virtual environment:
 
 ```bash
 python -m venv venv
-venv\Scriptsctivate
+```
+
+Activate the environment:
+
+Windows
+
+```bash
+venv\Scripts\activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
+```
+
+Run the application:
+
+```bash
 streamlit run app.py
 ```
 
-## Suggested commit message
+---
 
-```text
-feat: add language-aware prompts and visual score panels (v10)
+# Configuration
+
+Environment variables can be used to configure providers.
+
+Example `.env`:
+
+```
+OPENAI_API_KEY=
+GEMINI_API_KEY=
+
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_TIMEOUT_SECONDS=300
+OLLAMA_MAX_PROMPT_CHARS=18000
 ```
 
-## Author
+---
 
-Diego Cataneo  
-GitHub: https://github.com/DelphiCreative  
-YouTube: https://youtube.com/@delphicreative
+# Roadmap
 
+Future ideas for the project include:
 
-## Ollama local stability
+* language-aware prompts
+* repository-wide analysis
+* pull request analysis
+* policy-based code review
 
-This version adds configurable local execution settings for Ollama:
+---
 
-- `OLLAMA_TIMEOUT_SECONDS`
-- `OLLAMA_MAX_PROMPT_CHARS`
+# Author
 
-You can also test the Ollama connection directly from the sidebar.
+Diego Cataneo
+
+Software developer focused on backend systems and developer productivity tools.
+
+GitHub
+https://github.com/DelphiCreative
+
+YouTube
+https://youtube.com/@delphicreative
