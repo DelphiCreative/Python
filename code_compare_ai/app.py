@@ -49,7 +49,7 @@ from utils import (
     read_uploaded_file,
 )
 
-st.set_page_config(page_title="Code Compare AI", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="AI Code Review Assistant", page_icon="🧠", layout="wide")
 
 PROVIDER_OPTIONS = ["gemini", "openai", "ollama"]
 LANGUAGE_OPTIONS = ["Portuguese (Brazil)", "English"]
@@ -117,6 +117,27 @@ def inject_styles():
             font-size: 12px;
             color: #6b7280;
             margin-top: 8px;
+        }
+        .ccai-dev-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 12px 14px;
+            background: #ffffff;
+            margin-top: 12px;
+        }
+        .ccai-dev-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 6px;
+        }
+        .ccai-dev-text {
+            font-size: 14px;
+            color: #6b7280;
+        }
+        .ccai-dev-links a {
+            text-decoration: none;
+            font-size: 12px;
         }
         </style>
         """,
@@ -262,7 +283,7 @@ def render_sidebar():
 
     st.sidebar.subheader("Connection")
     if provider == "gemini":
-        st.sidebar.text_input("Model", key="gemini_model", help="Example: gemini-1.5-flash")
+        st.sidebar.text_input("Model", key="gemini_model", help="Example: gemini-2.5-flash")
         st.sidebar.text_input("Gemini API Key", value=st.session_state.provider_api_key, key="provider_api_key", type="password", help="Leave empty to use GEMINI_API_KEY from .env")
     elif provider == "openai":
         st.sidebar.text_input("Model", key="openai_model", help="Example: gpt-4.1-mini")
@@ -295,7 +316,30 @@ def render_sidebar():
         st.caption("History limit: {0}".format(HISTORY_LIMIT))
         st.caption("Git max files per review: {0}".format(GIT_REVIEW_MAX_FILES))
         st.caption("Multi-file max pairs: {0}".format(MAX_MULTI_FILE_PAIRS))
+    st.sidebar.divider()
 
+    st.sidebar.markdown(
+            """
+        <div class="ccai-dev-card">
+
+        <div class="ccai-dev-title">
+        AI Code Review Assistant
+        </div>
+
+        <div class="ccai-dev-text">
+        Created by <b>Diego Cataneo</b><br>
+        </div>
+        
+
+        <div class="ccai-dev-links">
+        🔗 <a href="https://github.com/DelphiCreative" target="_blank">GitHub</a><br>
+        🎥 <a href="https://youtube.com/@delphicreative" target="_blank">YouTube</a>
+        </div>
+
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
 
 def info_card(title, value):
     st.markdown(
@@ -348,7 +392,7 @@ def render_score_panel(score: float, issues_count: int, high_count: int, suggest
 
 
 def render_header():
-    st.title("Code Compare AI")
+    st.title("🧠 AI Code Review Assistant")
     st.caption("AI-powered code review with file compare, diff review, multi-file review, Git review, language-aware prompts, and improved Ollama stability.")
 
     action_col1, action_col2, _ = st.columns([1, 1, 4])
