@@ -8,6 +8,7 @@ TEXT_FILE_EXTENSIONS = {
     ".pas", ".dpr", ".cs", ".py", ".sql", ".js", ".ts", ".java",
     ".json", ".xml", ".vb", ".bas", ".txt", ".md", ".yml", ".yaml",
     ".ini", ".cfg", ".bat", ".ps1", ".sh", ".html", ".css",
+    ".jsx", ".tsx", ".mjs", ".cjs",
 }
 
 
