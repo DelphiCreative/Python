@@ -871,14 +871,21 @@ def render_result_summary(result):
     high_count = len([item for item in result.issues if item.severity in {"high", "critical"}])
     render_score_panel(result.score, len(result.issues), high_count, len(result.suggestions))
 
-    meta1, meta2, meta3 = st.columns(3)
-    with meta1:
-        st.info("Detected file A language: **{0}**".format(detect_language_from_extension(st.session_state.last_file_a_name or "")))
-    with meta2:
-        st.info("Detected file B language: **{0}**".format(detect_language_from_extension(st.session_state.last_file_b_name or "")))
-    with meta3:
-        auto_prompt = get_effective_prompt_name(st.session_state.selected_prompt_file, st.session_state.last_file_b_name or st.session_state.last_file_a_name or "")
-        st.info("Effective prompt: **{0}**".format(auto_prompt))
+    if st.session_state.selected_review_mode == "git_review":
+        meta1, meta2 = st.columns(2)
+        with meta1:
+            st.info("Review mode: **Git Review** (language is detected per file in the Git details section).")
+        with meta2:
+            st.info("Effective prompt: **{0}**".format(st.session_state.selected_prompt_file))
+    else:
+        meta1, meta2, meta3 = st.columns(3)
+        with meta1:
+            st.info("Detected file A language: **{0}**".format(detect_language_from_extension(st.session_state.last_file_a_name or "")))
+        with meta2:
+            st.info("Detected file B language: **{0}**".format(detect_language_from_extension(st.session_state.last_file_b_name or "")))
+        with meta3:
+            auto_prompt = get_effective_prompt_name(st.session_state.selected_prompt_file, st.session_state.last_file_b_name or st.session_state.last_file_a_name or "")
+            st.info("Effective prompt: **{0}**".format(auto_prompt))
 
     st.markdown("### Summary")
     st.write(result.summary)

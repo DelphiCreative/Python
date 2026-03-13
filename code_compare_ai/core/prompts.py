@@ -69,6 +69,7 @@ If the file is new, evaluate the current implementation quality and call out imp
 
 LANGUAGE_TEMPLATE_MAP = {
     "pascal": "delphi_compare_prompt.md",
+    "delphi": "delphi_compare_prompt.md",
     "csharp": "csharp_compare_prompt.md",
     "python": "python_compare_prompt.md",
     "sql": "sql_compare_prompt.md",

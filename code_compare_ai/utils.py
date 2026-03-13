@@ -1,14 +1,34 @@
 import difflib
+import re
 import subprocess
 from pathlib import Path
 
 
 TEXT_ENCODINGS = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
 TEXT_FILE_EXTENSIONS = {
-    ".pas", ".dpr", ".cs", ".py", ".sql", ".js", ".ts", ".java",
-    ".json", ".xml", ".vb", ".bas", ".txt", ".md", ".yml", ".yaml",
-    ".ini", ".cfg", ".bat", ".ps1", ".sh", ".html", ".css",
+    ".pas", ".dpr", ".dpk", ".dproj", ".dfm", ".fmx", ".inc",
+    ".lpr", ".lpi", ".lfm", ".pp", ".cs", ".py", ".sql", ".js",
+    ".ts", ".java", ".json", ".xml", ".vb", ".bas", ".txt", ".md",
+    ".yml", ".yaml", ".ini", ".cfg", ".bat", ".ps1", ".sh", ".html",
+    ".css", ".jsx", ".tsx", ".mjs", ".cjs",
 }
+
+
+def _normalize_file_name(file_name: str) -> str:
+    raw_name = (file_name or "").strip()
+    if not raw_name:
+        return ""
+
+    cleaned = raw_name.strip("\"'`")
+    cleaned = cleaned.replace('\\', '/')
+    if cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    cleaned = cleaned.rsplit("/", 1)[-1]
+    cleaned = cleaned.strip().strip("\"'`")
+
+    cleaned = re.sub(r'\\(["\\])', r'\1', cleaned)
+    cleaned = cleaned.rstrip("\"'`)]}")
+    return cleaned.lower()
 
 
 def read_uploaded_file(uploaded_file) -> str:
@@ -34,16 +54,37 @@ def read_text_file(file_path: str) -> str:
 
 
 def detect_language_from_extension(file_name: str) -> str:
-    ext = Path(file_name).suffix.lower()
+    normalized_name = _normalize_file_name(file_name)
+    suffixes = Path(normalized_name).suffixes
 
-    mapping = {
-        ".pas": "pascal",
-        ".dpr": "pascal",
+    language_by_name = {
+        "dockerfile": "docker",
+        "makefile": "makefile",
+    }
+    if normalized_name in language_by_name:
+        return language_by_name[normalized_name]
+
+    language_by_suffix = {
+        ".pas": "delphi",
+        ".dpr": "delphi",
+        ".dpk": "delphi",
+        ".dproj": "xml",
+        ".dfm": "delphi",
+        ".fmx": "delphi",
+        ".inc": "delphi",
+        ".lpr": "delphi",
+        ".lpi": "xml",
+        ".lfm": "delphi",
+        ".pp": "delphi",
         ".cs": "csharp",
         ".py": "python",
         ".sql": "sql",
         ".js": "javascript",
+        ".mjs": "javascript",
+        ".cjs": "javascript",
         ".ts": "typescript",
+        ".tsx": "typescript",
+        ".jsx": "javascript",
         ".java": "java",
         ".json": "json",
         ".xml": "xml",
@@ -55,7 +96,21 @@ def detect_language_from_extension(file_name: str) -> str:
         ".yaml": "yaml",
         ".md": "markdown",
     }
-    return mapping.get(ext, "text")
+
+    if len(suffixes) >= 2:
+        combined_suffix = "".join(suffixes[-2:])
+        combined_mapping = {
+            ".d.ts": "typescript",
+            ".spec.ts": "typescript",
+            ".test.ts": "typescript",
+            ".spec.js": "javascript",
+            ".test.js": "javascript",
+        }
+        if combined_suffix in combined_mapping:
+            return combined_mapping[combined_suffix]
+
+    ext = suffixes[-1] if suffixes else ""
+    return language_by_suffix.get(ext, "text")
 
 
 def generate_unified_diff(file_a_name: str, code_a: str, file_b_name: str, code_b: str, context_lines: int = 3) -> str:
@@ -103,7 +158,10 @@ def is_git_repo(repo_path: str) -> bool:
 
 
 def is_supported_text_file(file_path: str) -> bool:
-    return Path(file_path).suffix.lower() in TEXT_FILE_EXTENSIONS
+    normalized_name = _normalize_file_name(file_path)
+    suffixes = Path(normalized_name).suffixes
+    ext = suffixes[-1] if suffixes else ""
+    return ext in TEXT_FILE_EXTENSIONS
 
 
 def get_git_modified_files(repo_path: str, include_untracked: bool = True):
