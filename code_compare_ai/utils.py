@@ -1,4 +1,5 @@
 import difflib
+import re
 import subprocess
 from pathlib import Path
 
@@ -11,6 +12,23 @@ TEXT_FILE_EXTENSIONS = {
     ".yml", ".yaml", ".ini", ".cfg", ".bat", ".ps1", ".sh", ".html",
     ".css", ".jsx", ".tsx", ".mjs", ".cjs",
 }
+
+
+def _normalize_file_name(file_name: str) -> str:
+    raw_name = (file_name or "").strip()
+    if not raw_name:
+        return ""
+
+    cleaned = raw_name.strip("\"'`")
+    cleaned = cleaned.replace('\\', '/')
+    if cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    cleaned = cleaned.rsplit("/", 1)[-1]
+    cleaned = cleaned.strip().strip("\"'`")
+
+    cleaned = re.sub(r'\\(["\\])', r'\1', cleaned)
+    cleaned = cleaned.rstrip("\"'`)]}")
+    return cleaned.lower()
 
 
 def read_uploaded_file(uploaded_file) -> str:
@@ -36,7 +54,7 @@ def read_text_file(file_path: str) -> str:
 
 
 def detect_language_from_extension(file_name: str) -> str:
-    normalized_name = Path((file_name or "").strip()).name.lower()
+    normalized_name = _normalize_file_name(file_name)
     suffixes = Path(normalized_name).suffixes
 
     language_by_name = {
@@ -140,7 +158,10 @@ def is_git_repo(repo_path: str) -> bool:
 
 
 def is_supported_text_file(file_path: str) -> bool:
-    return Path(file_path).suffix.lower() in TEXT_FILE_EXTENSIONS
+    normalized_name = _normalize_file_name(file_path)
+    suffixes = Path(normalized_name).suffixes
+    ext = suffixes[-1] if suffixes else ""
+    return ext in TEXT_FILE_EXTENSIONS
 
 
 def get_git_modified_files(repo_path: str, include_untracked: bool = True):
