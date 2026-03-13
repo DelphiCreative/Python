@@ -34,16 +34,28 @@ def read_text_file(file_path: str) -> str:
 
 
 def detect_language_from_extension(file_name: str) -> str:
-    ext = Path(file_name).suffix.lower()
+    normalized_name = Path((file_name or "").strip()).name.lower()
+    suffixes = Path(normalized_name).suffixes
 
-    mapping = {
+    language_by_name = {
+        "dockerfile": "docker",
+        "makefile": "makefile",
+    }
+    if normalized_name in language_by_name:
+        return language_by_name[normalized_name]
+
+    language_by_suffix = {
         ".pas": "pascal",
         ".dpr": "pascal",
         ".cs": "csharp",
         ".py": "python",
         ".sql": "sql",
         ".js": "javascript",
+        ".mjs": "javascript",
+        ".cjs": "javascript",
         ".ts": "typescript",
+        ".tsx": "typescript",
+        ".jsx": "javascript",
         ".java": "java",
         ".json": "json",
         ".xml": "xml",
@@ -55,7 +67,21 @@ def detect_language_from_extension(file_name: str) -> str:
         ".yaml": "yaml",
         ".md": "markdown",
     }
-    return mapping.get(ext, "text")
+
+    if len(suffixes) >= 2:
+        combined_suffix = "".join(suffixes[-2:])
+        combined_mapping = {
+            ".d.ts": "typescript",
+            ".spec.ts": "typescript",
+            ".test.ts": "typescript",
+            ".spec.js": "javascript",
+            ".test.js": "javascript",
+        }
+        if combined_suffix in combined_mapping:
+            return combined_mapping[combined_suffix]
+
+    ext = suffixes[-1] if suffixes else ""
+    return language_by_suffix.get(ext, "text")
 
 
 def generate_unified_diff(file_a_name: str, code_a: str, file_b_name: str, code_b: str, context_lines: int = 3) -> str:
