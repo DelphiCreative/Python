@@ -5,10 +5,11 @@ from pathlib import Path
 
 TEXT_ENCODINGS = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
 TEXT_FILE_EXTENSIONS = {
-    ".pas", ".dpr", ".cs", ".py", ".sql", ".js", ".ts", ".java",
-    ".json", ".xml", ".vb", ".bas", ".txt", ".md", ".yml", ".yaml",
-    ".ini", ".cfg", ".bat", ".ps1", ".sh", ".html", ".css",
-    ".jsx", ".tsx", ".mjs", ".cjs",
+    ".pas", ".dpr", ".dpk", ".dproj", ".dfm", ".fmx", ".inc",
+    ".lpr", ".lpi", ".lfm", ".pp", ".cs", ".py", ".sql", ".js",
+    ".ts", ".java", ".json", ".xml", ".vb", ".bas", ".txt", ".md",
+    ".yml", ".yaml", ".ini", ".cfg", ".bat", ".ps1", ".sh", ".html",
+    ".css", ".jsx", ".tsx", ".mjs", ".cjs",
 }
 
 
@@ -48,6 +49,15 @@ def detect_language_from_extension(file_name: str) -> str:
     language_by_suffix = {
         ".pas": "pascal",
         ".dpr": "pascal",
+        ".dpk": "pascal",
+        ".dproj": "xml",
+        ".dfm": "pascal",
+        ".fmx": "pascal",
+        ".inc": "pascal",
+        ".lpr": "pascal",
+        ".lpi": "xml",
+        ".lfm": "pascal",
+        ".pp": "pascal",
         ".cs": "csharp",
         ".py": "python",
         ".sql": "sql",
